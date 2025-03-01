@@ -169,3 +169,65 @@ This software is for educational purposes only. Cryptocurrency trading involves 
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
+# File Structure for the AI Trading Agent
+
+I've analyzed the codebase and created a complete file structure for your README. This structure provides a clear overview of the project organization:
+
+```README.md
+ai-trading-agent/
+├── main.py                   # Main application entry point
+├── requirements.txt          # Python dependencies
+├── config/
+│   ├── settings.yaml         # Main configuration (gitignored)
+│   └── settings.yaml.example # Example configuration template
+├── data/                     # Data storage directory
+│   └── trading.db            # SQLite database (generated)
+├── logs/                     # Log files directory
+│   └── trading.log           # Main log file (generated)
+├── models/                   # ML model storage
+│   └── lstm_model.keras      # Trained LSTM model (generated)
+├── data_ingestion/           # Data collection modules
+│   ├── __init__.py
+│   ├── exchange_connector.py # Base connector for exchanges
+│   ├── liquidation_collector.py
+│   ├── funding_rate_collector.py
+│   ├── open_interest_collector.py
+│   ├── token_launches_collector.py
+│   └── transactions_collector.py
+├── data_processing/          # Data processing modules
+│   ├── __init__.py
+│   ├── data_cleaner.py       # Data cleaning utilities
+│   └── feature_engineering.py # Feature creation from raw data
+├── ai_module/                # AI and ML components
+│   ├── __init__.py
+│   ├── model_trainer.py      # Trains ML models on processed data
+│   └── prediction_engine.py  # Generates predictions/signals
+├── execution/                # Trade execution modules
+│   ├── __init__.py
+│   └── order_manager.py      # Handles order creation and management
+└── utils/                    # Utility modules
+    ├── __init__.py
+    ├── logger.py             # Logging configuration
+    └── db_handler.py         # Database operations
+```
+
+## Data Flow
+
+The application follows this data flow:
+
+1. **Data Collection**: Modules in `data_ingestion/` collect real-time data from exchanges
+2. **Data Processing**: Raw data is cleaned and transformed into features
+3. **AI Processing**: ML models analyze processed data to generate trading signals
+4. **Execution**: If enabled, trades are executed based on signals
+
+## Key Components
+
+- **AITradingAgent**: Central orchestrator that initializes and manages all components
+- **DatabaseHandler**: Stores collected data in SQLite (or other configured DB)
+- **Data Collectors**: Separate modules for different data types (liquidations, funding rates, etc.)
+- **Model Trainer**: Trains LSTM or other ML models on processed data
+- **Prediction Engine**: Uses trained models to generate trading signals
+- **Order Manager**: Executes trades based on signals and risk parameters
+
+The modular design allows each component to be developed, tested, and enhanced independently.
+
