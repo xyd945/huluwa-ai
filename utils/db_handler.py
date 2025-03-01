@@ -12,36 +12,27 @@ from datetime import datetime
 class DatabaseHandler:
     """Handles database operations for storing and retrieving trading data."""
     
-    def __init__(self, config_path: str = 'config/settings.yaml'):
+    def __init__(self, config: Union[str, Dict[str, Any]]):
         """
         Initialize the database handler.
         
         Args:
-            config_path (str): Path to configuration file
+            config (Union[str, Dict[str, Any]]): Database configuration path or direct config dict
         """
         self.logger = logging.getLogger("DatabaseHandler")
         
         # Load configuration
         try:
-            with open(config_path, 'r') as file:
-                config = yaml.safe_load(file)
-                self.db_config = config.get('database', {})
-        except FileNotFoundError:
-            self.logger.error(f"Configuration file not found: {config_path}")
-            self.db_config = {
-                'type': 'sqlite',
-                'path': 'data/trading.db'
-            }
-        
-        self.db_type = self.db_config.get('type', 'sqlite')
-        
-        # Initialize database connection
-        self._init_database()
-    
-    def _init_database(self) -> None:
-        """Initialize database connection and tables."""
-        if self.db_type == 'sqlite':
-            db_path = self.db_config.get('path', 'data/trading.db')
+            if isinstance(config, str):
+                # It's a path to a config file
+                with open(config, 'r') as file:
+                    config_data = yaml.safe_load(file).get('database', {})
+            else:
+                # It's already a config dictionary
+                config_data = config
+            
+            # Get database path from config
+            db_path = config_data.get('path', 'data/trading.db')
             
             # Create directory if it doesn't exist
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -50,11 +41,12 @@ class DatabaseHandler:
             self.conn = sqlite3.connect(db_path)
             self.logger.info(f"Connected to SQLite database at {db_path}")
             
-            # Create tables
+            # Create tables if they don't exist
             self._create_tables()
-        else:
-            self.logger.error(f"Unsupported database type: {self.db_type}")
-            raise ValueError(f"Unsupported database type: {self.db_type}")
+            
+        except Exception as e:
+            self.logger.error(f"Error initializing database: {str(e)}")
+            raise
     
     def _create_tables(self) -> None:
         """Create necessary tables if they don't exist."""
@@ -108,12 +100,13 @@ class DatabaseHandler:
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS token_launches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source TEXT NOT NULL,
-            token_symbol TEXT NOT NULL,
-            token_name TEXT,
-            launch_timestamp INTEGER NOT NULL,
+            exchange TEXT,
+            token_name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            launch_date INTEGER,
             initial_price REAL,
-            platform TEXT,
+            description TEXT,
+            url TEXT,
             raw_data TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -221,14 +214,14 @@ class DatabaseHandler:
             
             cursor.execute('''
             INSERT INTO funding_rates 
-            (exchange, symbol, rate, timestamp, next_funding_time, raw_data)
+            (exchange, symbol, rate, next_funding_time, timestamp, raw_data)
             VALUES (?, ?, ?, ?, ?, ?)
             ''', (
                 data.get('exchange'),
                 data.get('symbol'),
-                data.get('rate'),
-                data.get('timestamp'),
+                data.get('funding_rate'),
                 data.get('next_funding_time'),
+                data.get('timestamp'),
                 str(data.get('raw_data', ''))
             ))
             
@@ -254,13 +247,12 @@ class DatabaseHandler:
             
             cursor.execute('''
             INSERT INTO open_interest 
-            (exchange, symbol, open_interest, open_interest_usd, timestamp, raw_data)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (exchange, symbol, open_interest, timestamp, raw_data)
+            VALUES (?, ?, ?, ?, ?)
             ''', (
                 data.get('exchange'),
                 data.get('symbol'),
                 data.get('open_interest'),
-                data.get('open_interest_usd'),
                 data.get('timestamp'),
                 str(data.get('raw_data', ''))
             ))
@@ -287,15 +279,16 @@ class DatabaseHandler:
             
             cursor.execute('''
             INSERT INTO token_launches 
-            (source, token_symbol, token_name, launch_timestamp, initial_price, platform, raw_data)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (exchange, token_name, symbol, launch_date, initial_price, description, url, raw_data)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                data.get('source'),
-                data.get('token_symbol'),
-                data.get('token_name'),
-                data.get('launch_timestamp'),
-                data.get('initial_price'),
-                data.get('platform'),
+                data.get('exchange', ''),
+                data.get('token_name', ''),
+                data.get('symbol', ''),
+                data.get('launch_date', 0),
+                data.get('initial_price', 0.0),
+                data.get('description', ''),
+                data.get('url', ''),
                 str(data.get('raw_data', ''))
             ))
             
@@ -306,12 +299,11 @@ class DatabaseHandler:
             self.logger.error(f"Error storing token launch data: {str(e)}")
             return False
     
-    def store_transaction(self, symbol: str, data: Dict[str, Any]) -> bool:
+    def store_transaction(self, data: Dict[str, Any]) -> bool:
         """
         Store transaction data in the database.
         
         Args:
-            symbol (str): Trading symbol
             data (Dict[str, Any]): Transaction data
             
         Returns:
@@ -322,16 +314,16 @@ class DatabaseHandler:
             
             cursor.execute('''
             INSERT INTO transactions 
-            (exchange, symbol, side, price, amount, cost, timestamp, raw_data)
+            (exchange, symbol, side, quantity, price, timestamp, trade_id, raw_data)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 data.get('exchange'),
-                symbol,
+                data.get('symbol'),
                 data.get('side'),
+                data.get('quantity'),
                 data.get('price'),
-                data.get('amount'),
-                data.get('cost'),
                 data.get('timestamp'),
+                data.get('trade_id'),
                 str(data.get('raw_data', ''))
             ))
             

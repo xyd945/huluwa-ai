@@ -101,6 +101,9 @@ class TransactionsCollector:
                         for callback in self.callbacks:
                             callback(symbol, trade_data)  # Pass both symbol and data
                             
+                        # Store transaction data in the database
+                        self._store_transaction(trade_data)
+                            
                 except json.JSONDecodeError:
                     self.logger.error(f"Invalid JSON in message: {message}")
                 except Exception as e:
@@ -148,3 +151,28 @@ class TransactionsCollector:
             asyncio.create_task(connection.close())
         
         self.websocket_connections = {} 
+
+    def _store_transaction(self, transaction: Dict[str, Any]) -> None:
+        """
+        Store transaction data in the database.
+        
+        Args:
+            transaction (Dict[str, Any]): Transaction data to store
+        """
+        try:
+            # If you have a database handler
+            if hasattr(self, 'db_handler'):
+                self.db_handler.store_transaction(transaction)
+            
+            # Keep a record in memory too
+            if not hasattr(self, 'recent_transactions'):
+                self.recent_transactions = []
+            
+            self.recent_transactions.append(transaction)
+            
+            # Limit memory storage
+            if len(self.recent_transactions) > 1000:
+                self.recent_transactions = self.recent_transactions[-1000:]
+            
+        except Exception as e:
+            self.logger.error(f"Error storing transaction data: {str(e)}") 

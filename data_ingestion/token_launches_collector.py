@@ -239,6 +239,14 @@ class TokenLaunchesCollector:
                     launch_data[source] = []
                 source_idx += 1
         
+        # Flatten the results and store them
+        all_launches = []
+        for source_launches in launch_data.values():
+            all_launches.extend(source_launches)
+        
+        if all_launches:
+            self._store_token_launches(all_launches)
+        
         return launch_data
     
     async def _collection_loop(self, interval: int) -> None:
@@ -274,4 +282,21 @@ class TokenLaunchesCollector:
     def stop_collection(self) -> None:
         """Stop the token launch collection."""
         self.running = False
-        self.logger.info("Stopping token launch collection") 
+        self.logger.info("Stopping token launch collection")
+    
+    def _store_token_launches(self, token_launches: List[Dict[str, Any]]) -> None:
+        """
+        Store token launch data in the database.
+        
+        Args:
+            token_launches (List[Dict[str, Any]]): Token launch data to store
+        """
+        try:
+            # If you have a database handler
+            if hasattr(self, 'db_handler'):
+                for item in token_launches:
+                    self.db_handler.store_token_launch(item)
+            
+            self.logger.info(f"Stored {len(token_launches)} token launch records in database")
+        except Exception as e:
+            self.logger.error(f"Error storing token launch data: {str(e)}") 

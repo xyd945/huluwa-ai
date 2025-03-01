@@ -62,7 +62,7 @@ class AITradingAgent:
         self.feature_engineer = FeatureEngineer()
         
         # Initialize database
-        self.db_handler = DatabaseHandler(config_path)
+        self.db_handler = DatabaseHandler(self.config.get('database', {}))
         
         # Initialize data collectors
         self._init_data_collectors()
@@ -92,6 +92,7 @@ class AITradingAgent:
                 config_path=self.config_path
             )
             self.liquidation_collector.register_callback(self._on_liquidation_data)
+            self.liquidation_collector.db_handler = self.db_handler
         else:
             self.liquidation_collector = None
         
@@ -102,6 +103,7 @@ class AITradingAgent:
                 exchanges=fr_config.get('exchanges', []),
                 config_path=self.config_path
             )
+            self.funding_rate_collector.db_handler = self.db_handler
         else:
             self.funding_rate_collector = None
         
@@ -112,6 +114,7 @@ class AITradingAgent:
                 exchanges=oi_config.get('exchanges', []),
                 config_path=self.config_path
             )
+            self.open_interest_collector.db_handler = self.db_handler
         else:
             self.open_interest_collector = None
         
@@ -122,6 +125,7 @@ class AITradingAgent:
                 sources=tl_config.get('sources', []),
                 config_path=self.config_path
             )
+            self.token_launches_collector.db_handler = self.db_handler
         else:
             self.token_launches_collector = None
         
@@ -134,6 +138,7 @@ class AITradingAgent:
                 config_path=self.config_path
             )
             self.transactions_collector.register_callback(self._on_transaction_data)
+            self.transactions_collector.db_handler = self.db_handler
         else:
             self.transactions_collector = None
         

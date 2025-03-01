@@ -99,6 +99,7 @@ class OpenInterestCollector:
                     self.logger.error(f"Error fetching Binance open interest for {symbol}: {str(e)}")
             
             self.logger.info(f"Collected open interest for {len(open_interest_data)} Binance symbols")
+            self._store_open_interest(open_interest_data)
             return open_interest_data
             
         except Exception as e:
@@ -229,4 +230,21 @@ class OpenInterestCollector:
     def stop_collection(self) -> None:
         """Stop the open interest collection."""
         self.running = False
-        self.logger.info("Stopping open interest collection") 
+        self.logger.info("Stopping open interest collection")
+    
+    def _store_open_interest(self, open_interest_data: List[Dict[str, Any]]) -> None:
+        """
+        Store open interest data in the database.
+        
+        Args:
+            open_interest_data (List[Dict[str, Any]]): Open interest data to store
+        """
+        try:
+            # If you have a database handler
+            if hasattr(self, 'db_handler'):
+                for item in open_interest_data:
+                    self.db_handler.store_open_interest(item)
+            
+            self.logger.info(f"Stored {len(open_interest_data)} open interest records in database")
+        except Exception as e:
+            self.logger.error(f"Error storing open interest data: {str(e)}") 

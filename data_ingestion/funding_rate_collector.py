@@ -86,6 +86,7 @@ class FundingRateCollector:
                     self.logger.error(f"Error fetching Binance funding rate for {market.get('symbol')}: {str(e)}")
             
             self.logger.info(f"Collected {len(funding_rates)} funding rates from Binance")
+            self._store_funding_rates(funding_rates)
             return funding_rates
             
         except Exception as e:
@@ -258,4 +259,21 @@ class FundingRateCollector:
     def stop_collection(self) -> None:
         """Stop the funding rate collection."""
         self.running = False
-        self.logger.info("Stopping funding rate collection") 
+        self.logger.info("Stopping funding rate collection")
+    
+    def _store_funding_rates(self, funding_rates: List[Dict[str, Any]]) -> None:
+        """
+        Store funding rate data in the database.
+        
+        Args:
+            funding_rates (List[Dict[str, Any]]): Funding rate data to store
+        """
+        try:
+            # If you have a database handler
+            if hasattr(self, 'db_handler'):
+                for item in funding_rates:
+                    self.db_handler.store_funding_rate(item)
+            
+            self.logger.info(f"Stored {len(funding_rates)} funding rate records in database")
+        except Exception as e:
+            self.logger.error(f"Error storing funding rate data: {str(e)}") 
