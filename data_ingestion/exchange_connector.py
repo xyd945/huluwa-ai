@@ -5,6 +5,7 @@ import os
 import yaml
 import ccxt
 import logging
+import asyncio
 from typing import Dict, List, Optional, Any, Union
 
 class ExchangeConnector:
@@ -32,20 +33,42 @@ class ExchangeConnector:
             
             # Initialize CCXT exchange
             exchange_class = getattr(ccxt, exchange_id)
-            self.exchange = exchange_class({
-                'apiKey': exchange_config.get('api_key', ''),
-                'secret': exchange_config.get('api_secret', ''),
-                'enableRateLimit': True,
-                'options': {
-                    'testnet': exchange_config.get('testnet', True)
-                }
-            })
+            api_key = exchange_config.get('api_key', '')
+            api_secret = exchange_config.get('api_secret', '')
+            testnet = exchange_config.get('testnet', True)
             
-            self.logger.info(f"Successfully initialized {exchange_id} connector")
+            if api_key and api_secret:
+                # Authenticated access
+                self.exchange = exchange_class({
+                    'apiKey': api_key,
+                    'secret': api_secret,
+                    'enableRateLimit': True,
+                    'options': {
+                        'testnet': testnet
+                    }
+                })
+                self.authenticated = True
+                self.logger.info(f"Initialized {exchange_id} with API keys (testnet: {testnet})")
+            else:
+                # Public access only
+                self.exchange = exchange_class({
+                    'enableRateLimit': True,
+                    'options': {
+                        'testnet': testnet
+                    }
+                })
+                self.authenticated = False
+                self.logger.info(f"Initialized {exchange_id} for public access only (testnet: {testnet})")
             
         except FileNotFoundError:
             self.logger.error(f"Configuration file not found: {config_path}")
-            raise
+            # Initialize with public access only
+            self.exchange = getattr(ccxt, exchange_id)({
+                'enableRateLimit': True
+            })
+            self.authenticated = False
+            self.logger.info(f"Initialized {exchange_id} for public access only (default)")
+        
         except Exception as e:
             self.logger.error(f"Failed to initialize {exchange_id} connector: {str(e)}")
             raise
@@ -166,4 +189,59 @@ class ExchangeConnector:
             # Add more exchanges as needed
         }
         
-        return ws_endpoints.get(self.exchange_id, '') 
+        return ws_endpoints.get(self.exchange_id, '')
+
+    async def fetch_open_interest(self, symbols: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Fetch open interest data for specified symbols.
+        
+        Args:
+            symbols (List[str], optional): List of symbols to fetch data for
+            
+        Returns:
+            Dict[str, Any]: Open interest data
+        """
+        try:
+            if hasattr(self.exchange, 'fetch_open_interest'):
+                if symbols:
+                    result = {}
+                    for symbol in symbols:
+                        result[symbol] = await self.exchange.fetch_open_interest(symbol)
+                    return result
+                else:
+                    # Fetch major symbols if none specified
+                    default_symbols = ['BTC/USDT', 'ETH/USDT']
+                    result = {}
+                    for symbol in default_symbols:
+                        try:
+                            result[symbol] = await self.exchange.fetch_open_interest(symbol)
+                        except:
+                            pass
+                    return result
+            else:
+                self.logger.warning(f"{self.exchange_id} does not support fetch_open_interest")
+                return {}
+        except Exception as e:
+            self.logger.error(f"Error fetching open interest: {str(e)}")
+            return {}
+    
+    async def fetch_funding_rates(self, symbols: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Fetch funding rate data for specified symbols.
+        
+        Args:
+            symbols (List[str], optional): List of symbols to fetch data for
+            
+        Returns:
+            Dict[str, Any]: Funding rate data
+        """
+        try:
+            if hasattr(self.exchange, 'fetch_funding_rates'):
+                # Convert to asyncio.to_thread since ccxt's method is synchronous
+                return await asyncio.to_thread(self.exchange.fetch_funding_rates, symbols)
+            else:
+                self.logger.warning(f"{self.exchange_id} does not support fetch_funding_rates")
+                return {}
+        except Exception as e:
+            self.logger.error(f"Error fetching funding rates: {str(e)}")
+            return {} 

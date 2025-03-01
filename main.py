@@ -10,6 +10,7 @@ import logging
 import pandas as pd
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
+import argparse
 
 # Import utility modules
 from utils.logger import setup_logger
@@ -207,182 +208,64 @@ class AITradingAgent:
     
     async def start(self) -> None:
         """Start the AI trading agent."""
-        self.logger.info("Starting AI Trading Agent")
+        self.logger.info("Starting AI Trading Agent...")
         
         # Start data collectors
         data_collection_tasks = []
         
-        if self.liquidation_collector:
-            data_collection_tasks.append(asyncio.create_task(self.liquidation_collector.start_collection()))
-        
-        if self.transactions_collector:
-            data_collection_tasks.append(asyncio.create_task(self.transactions_collector.start_collection()))
-        
-        # Start processing loop
-        process_task = asyncio.create_task(self._processing_loop())
-        
-        # Wait for tasks - we'll only wait for the processing loop since the collectors run indefinitely
-        try:
-            await process_task
-        except asyncio.CancelledError:
-            self.logger.info("Processing loop cancelled")
-        except Exception as e:
-            self.logger.error(f"Error in main loop: {str(e)}")
-        finally:
-            # Stop collectors
-            if self.liquidation_collector:
-                self.liquidation_collector.stop_collection()
-            
-            if self.transactions_collector:
-                self.transactions_collector.stop_collection()
-            
-            # Cancel all tasks
-            for task in data_collection_tasks:
-                task.cancel()
-    
-    async def _processing_loop(self) -> None:
-        """Main processing loop for the agent."""
-        self.logger.info("Starting processing loop")
-        
-        while True:
-            try:
-                # Extract features from collected data
-                features = await self._extract_features()
-                
-                if not features.empty:
-                    # Generate trading signals
-                    if self.prediction_engine:
-                        signal = await self.generate_signals(features)
-                        self.logger.info(f"Generated signal: {signal}")
-                        
-                        # Execute trades based on signals
-                        await self.execute_trades(signal)
-                    else:
-                        self.logger.debug("No prediction engine available")
-                
-                # Periodic tasks
-                # TODO: Implement periodic tasks like model retraining
-                
-                # Sleep to control loop frequency
-                await asyncio.sleep(30)
-                
-            except Exception as e:
-                self.logger.error(f"Error in processing loop: {str(e)}")
-                await asyncio.sleep(60)  # Wait longer on error
-    
-    async def _extract_features(self) -> pd.DataFrame:
-        """
-        Extract features from collected data.
-        
-        Returns:
-            pd.DataFrame: Extracted features
-        """
-        # Process liquidation data if available
-        liquidation_features = pd.DataFrame()
-        if self.liquidation_data:
-            cleaned_liquidations = self.data_cleaner.clean_liquidation_data(self.liquidation_data)
-            liquidation_features = self.feature_engineer.extract_liquidation_features(cleaned_liquidations)
-        
-        # Process funding rate data if available
-        funding_features = pd.DataFrame()
-        if self.funding_rate_data:
-            cleaned_funding = self.data_cleaner.clean_funding_rate_data(self.funding_rate_data)
-            funding_features = self.feature_engineer.extract_funding_rate_features(cleaned_funding)
-        
-        # Process open interest data if available
-        oi_features = pd.DataFrame()
-        if self.open_interest_data:
-            cleaned_oi = self.data_cleaner.clean_open_interest_data(self.open_interest_data)
-            oi_features = self.feature_engineer.extract_open_interest_features(cleaned_oi)
-        
-        # Process transaction data if available
-        tx_features = {}
-        for symbol, tx_data in self.transaction_data.items():
-            if tx_data:
-                cleaned_tx = self.data_cleaner.clean_transaction_data(tx_data)
-                tx_features[symbol] = self.feature_engineer.extract_market_transaction_features(cleaned_tx)
-        
-        # For now, we'll return features for the first configured symbol
-        # A more sophisticated implementation would handle multiple symbols
-        symbols = self.config.get('data_collection', {}).get('transactions', {}).get('symbols', [])
-        if symbols and symbols[0] in tx_features:
-            return tx_features[symbols[0]]
-        
-        # If we don't have transaction features, return an empty DataFrame
-        return pd.DataFrame()
-    
-    async def generate_signals(self, features: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Generate trading signals from processed features.
-        
-        Args:
-            features (pd.DataFrame): Processed features
-            
-        Returns:
-            Dict[str, Any]: Trading signals
-        """
-        if self.prediction_engine is None:
-            self.logger.warning("Prediction engine not initialized")
-            return {'signal': 'neutral', 'confidence': 0.0}
-        
-        if features.empty:
-            self.logger.warning("No features available for prediction")
-            return {'signal': 'neutral', 'confidence': 0.0}
-        
-        return self.prediction_engine.generate_signal(features)
-    
-    async def execute_trades(self, signal: Dict[str, Any]) -> None:
-        """
-        Execute trades based on generated signals.
-        
-        Args:
-            signal (Dict[str, Any]): Trading signal
-        """
-        if not self.config.get('execution', {}).get('enabled', False) or self.order_manager is None:
-            self.logger.debug("Trade execution disabled")
-            return
-        
-        # Get symbol to trade
-        symbols = self.config.get('data_collection', {}).get('transactions', {}).get('symbols', [])
-        if not symbols:
-            self.logger.warning("No symbols configured for trading")
-            return
-        
-        symbol = symbols[0]  # Use the first symbol for now
-        
-        # Check if signal is actionable
-        if signal.get('signal') == 'buy':
-            self.logger.info(f"Executing BUY for {symbol} with confidence {signal.get('confidence')}")
-            
-            # Calculate position size (simplified)
-            position_size = self.order_manager.calculate_position_size(symbol)
-            
-            # Execute the order
-            order_result = self.order_manager.execute_order(
-                symbol=symbol,
-                side='buy',
-                quantity=position_size
+        # Start liquidation collector
+        liq_config = self.config.get('data_collection', {}).get('liquidation', {})
+        if self.liquidation_collector and liq_config.get('enabled', False):
+            data_collection_tasks.append(
+                asyncio.create_task(self.liquidation_collector.start_collection())
             )
+        
+        # Start funding rate collector
+        fr_config = self.config.get('data_collection', {}).get('funding_rate', {})
+        if self.funding_rate_collector and fr_config.get('enabled', False):
+            interval = fr_config.get('interval', 3600)
+            data_collection_tasks.append(
+                asyncio.create_task(self.funding_rate_collector.start_collection(interval=interval))
+            )
+        
+        # Start open interest collector
+        oi_config = self.config.get('data_collection', {}).get('open_interest', {})
+        if self.open_interest_collector and oi_config.get('enabled', False):
+            interval = oi_config.get('interval', 300)
+            data_collection_tasks.append(
+                asyncio.create_task(self.open_interest_collector.start_collection(interval=interval))
+            )
+        
+        # Start token launches collector
+        tl_config = self.config.get('data_collection', {}).get('token_launches', {})
+        if self.token_launches_collector and tl_config.get('enabled', False):
+            interval = tl_config.get('interval', 3600)
+            data_collection_tasks.append(
+                asyncio.create_task(self.token_launches_collector.start_collection(interval=interval))
+            )
+        
+        # Start transactions collector
+        if self.transactions_collector:
+            data_collection_tasks.append(
+                asyncio.create_task(self.transactions_collector.start_collection())
+            )
+        
+        # Set up signal processing
+        self.logger.info("Setting up signal processing pipeline...")
+        
+        # For now, we're focusing on data collection and processing
+        # Skip the model training and trade execution parts
+        
+        # Wait for all data collection tasks
+        if data_collection_tasks:
+            self.logger.info(f"Started {len(data_collection_tasks)} data collection tasks")
+            await asyncio.gather(*data_collection_tasks)
+        else:
+            self.logger.warning("No data collection tasks started. Check configuration.")
             
-            self.logger.info(f"Order execution result: {order_result}")
-            
-        elif signal.get('signal') == 'sell':
-            self.logger.info(f"Executing SELL for {symbol} with confidence {signal.get('confidence')}")
-            
-            # Check if we have an open position
-            if symbol in self.order_manager.open_positions:
-                position = self.order_manager.open_positions[symbol]
-                
-                # Close the position
-                order_result = self.order_manager.execute_order(
-                    symbol=symbol,
-                    side='sell',
-                    quantity=position['quantity']
-                )
-                
-                self.logger.info(f"Order execution result: {order_result}")
-            else:
-                self.logger.info(f"No open position for {symbol} to sell")
+            # Keep the program running
+            while True:
+                await asyncio.sleep(60)
 
 async def main():
     """Main entry point for the application."""
@@ -393,5 +276,20 @@ async def main():
     await agent.start()
 
 if __name__ == "__main__":
-    # Run the main async function
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="AI Trading Agent")
+    parser.add_argument("--config", type=str, default="config/settings.yaml", 
+                        help="Path to configuration file")
+    parser.add_argument("--debug", action="store_true", 
+                        help="Enable debug logging")
+    parser.add_argument("--backtest", action="store_true", 
+                        help="Run in backtesting mode")
+    parser.add_argument("--start-date", type=str, 
+                        help="Start date for backtesting (YYYY-MM-DD)")
+    parser.add_argument("--end-date", type=str, 
+                        help="End date for backtesting (YYYY-MM-DD)")
+    
+    args = parser.parse_args()
+    
+    # Run the application
     asyncio.run(main()) 

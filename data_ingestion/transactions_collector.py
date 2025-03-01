@@ -65,28 +65,46 @@ class TransactionsCollector:
         endpoint = f"wss://stream.binance.com:9443/stream?streams={'/'.join(streams)}"
         
         async def on_message(websocket):
+            # Subscribe to trade channels for each symbol
+            for symbol in symbols:
+                normalized_symbol = symbol.replace('/', '').lower()
+                subscribe_msg = {
+                    "method": "SUBSCRIBE",
+                    "params": [f"{normalized_symbol}@trade"],
+                    "id": 1
+                }
+                await websocket.send(json.dumps(subscribe_msg))
+            
             async for message in websocket:
-                data = json.loads(message)
-                if 'data' in data and 'e' in data['data'] and data['data']['e'] == 'trade':
-                    trade_data = data['data']
-                    
-                    # Extract symbol in standard format
-                    raw_symbol = trade_data['s']
-                    standard_symbol = f"{raw_symbol[:-4]}/{raw_symbol[-4:]}" if raw_symbol.endswith(('USDT', 'USDC')) else raw_symbol
-                    
-                    transaction_data = {
-                        'exchange': 'binance',
-                        'symbol': standard_symbol,
-                        'price': float(trade_data['p']),
-                        'amount': float(trade_data['q']),
-                        'side': 'buy' if trade_data['m'] else 'sell',  # m = is_buyer_maker
-                        'timestamp': trade_data['T'],
-                        'trade_id': trade_data['t'],
-                        'raw_data': trade_data
-                    }
-                    
-                    for callback in self.callbacks:
-                        callback(transaction_data)
+                try:
+                    data = json.loads(message)
+                    # Check if this is a trade message
+                    if 'e' in data and data['e'] == 'trade':
+                        symbol_upper = data['s']
+                        # Convert back to ccxt format (e.g., BTCUSDT -> BTC/USDT)
+                        symbol = self._convert_to_ccxt_symbol(symbol_upper)
+                        
+                        trade_data = {
+                            'exchange': 'binance',
+                            'symbol': symbol,
+                            'id': data['t'],
+                            'order': data['t'],  # Use trade ID as order ID
+                            'side': 'sell' if data['m'] else 'buy',  # m is true if buyer is maker
+                            'price': float(data['p']),
+                            'amount': float(data['q']),
+                            'timestamp': data['T'],
+                            'datetime': datetime.fromtimestamp(data['T'] / 1000).isoformat(),
+                            'raw_data': data
+                        }
+                        
+                        # Call each registered callback with the trade data
+                        for callback in self.callbacks:
+                            callback(symbol, trade_data)  # Pass both symbol and data
+                            
+                except json.JSONDecodeError:
+                    self.logger.error(f"Invalid JSON in message: {message}")
+                except Exception as e:
+                    self.logger.error(f"Error processing trade message: {str(e)}")
         
         while self.running:
             try:

@@ -56,44 +56,50 @@ class OpenInterestCollector:
         try:
             connector = self.connectors.get('binance')
             if not connector:
-                self.logger.error("Binance connector not initialized")
                 return []
             
-            # Fetch list of futures symbols
-            markets = connector.exchange.fetch_markets()
-            future_symbols = [market['symbol'] for market in markets if 
-                            'future' in market.get('type', '').lower() or 
-                            '/USDT' in market['symbol'] or '/USDC' in market['symbol']]
+            # Get all futures markets - ensuring we get full market objects
+            markets = await asyncio.to_thread(connector.exchange.fetch_markets)
+            
+            # Properly filter futures markets
+            futures_markets = [m for m in markets if 
+                               (m.get('future', False) or 
+                               'future' in m.get('type', '').lower() or
+                               'swap' in m.get('type', '').lower()) and
+                               m.get('active', False)]
+            
+            # Get symbols in the correct format (BTC/USDT:USDT)
+            futures_symbols = [m['symbol'] for m in futures_markets]
+            
+            # Debug log to verify we have proper symbols
+            self.logger.info(f"Found {len(futures_symbols)} futures symbols. Examples: {futures_symbols[:3] if futures_symbols else []}")
+            
+            # Limit to top 10 by volume if available
+            if len(futures_symbols) > 10:
+                futures_symbols = futures_symbols[:10]
+            
+            self.logger.info(f"Fetching open interest for {len(futures_symbols)} Binance futures symbols")
+            
+            open_interest_data = []
             
             # Fetch open interest for each symbol
-            result = []
-            for symbol in future_symbols[:20]:  # Limit to 20 symbols to avoid rate limits
+            for symbol in futures_symbols:
                 try:
-                    open_interest = connector.exchange.fetch_open_interest(symbol)
-                    
-                    data = {
-                        'exchange': 'binance',
-                        'symbol': symbol,
-                        'open_interest': float(open_interest['openInterest']),
-                        'open_interest_usd': float(open_interest.get('openInterestValue', 0)),
-                        'timestamp': int(datetime.now().timestamp() * 1000),
-                        'raw_data': open_interest
-                    }
-                    
-                    result.append(data)
-                    
-                    # Process callbacks
-                    for callback in self.callbacks:
-                        callback(data)
-                    
-                    # Avoid rate limits
-                    await asyncio.sleep(0.5)
-                    
+                    open_interest_info = await asyncio.to_thread(connector.exchange.fetch_open_interest, symbol)
+                    if open_interest_info:
+                        open_interest_data.append({
+                            'exchange': 'binance',
+                            'symbol': symbol,
+                            'open_interest': open_interest_info.get('openInterestAmount', 0),
+                            'timestamp': int(datetime.now().timestamp() * 1000),
+                            'raw_data': open_interest_info
+                        })
+                        
                 except Exception as e:
                     self.logger.error(f"Error fetching Binance open interest for {symbol}: {str(e)}")
             
-            self.logger.info(f"Collected open interest for {len(result)} Binance symbols")
-            return result
+            self.logger.info(f"Collected open interest for {len(open_interest_data)} Binance symbols")
+            return open_interest_data
             
         except Exception as e:
             self.logger.error(f"Error collecting Binance open interest: {str(e)}")
