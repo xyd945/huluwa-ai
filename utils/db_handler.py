@@ -6,6 +6,8 @@ import yaml
 import logging
 import sqlite3
 import pandas as pd
+import json
+import time
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
 
@@ -155,6 +157,20 @@ class DatabaseHandler:
             price REAL,
             status TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
+            raw_data TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        
+        # Create market_analysis table
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS market_analysis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            analysis TEXT NOT NULL,
+            error TEXT,
             raw_data TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -450,4 +466,258 @@ class DatabaseHandler:
         """Close the database connection."""
         if hasattr(self, 'conn'):
             self.conn.close()
-            self.logger.info("Database connection closed") 
+            self.logger.info("Database connection closed")
+
+    def fetch_liquidations(self, start_time: int, end_time: int) -> List[Dict[str, Any]]:
+        """
+        Fetch liquidation data within a time range.
+        
+        Args:
+            start_time (int): Start timestamp (milliseconds)
+            end_time (int): End timestamp (milliseconds)
+            
+        Returns:
+            List[Dict[str, Any]]: Liquidation data
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            cursor.execute('''
+            SELECT * FROM liquidations
+            WHERE timestamp >= ? AND timestamp <= ?
+            ORDER BY timestamp ASC
+            ''', (start_time, end_time))
+            
+            # Get column names
+            columns = [description[0] for description in cursor.description]
+            
+            # Fetch all results
+            liquidations = []
+            for row in cursor.fetchall():
+                liquidation = {columns[i]: row[i] for i in range(len(columns))}
+                liquidations.append(liquidation)
+            
+            self.logger.info(f"Fetched {len(liquidations)} liquidations between {start_time} and {end_time}")
+            return liquidations
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching liquidations: {str(e)}")
+            return []
+
+    def fetch_funding_rates(self, start_time: int, end_time: int) -> List[Dict[str, Any]]:
+        """
+        Fetch funding rate data within a time range.
+        
+        Args:
+            start_time (int): Start timestamp (milliseconds)
+            end_time (int): End timestamp (milliseconds)
+            
+        Returns:
+            List[Dict[str, Any]]: Funding rate data
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            cursor.execute('''
+            SELECT * FROM funding_rates
+            WHERE timestamp >= ? AND timestamp <= ?
+            ORDER BY timestamp ASC
+            ''', (start_time, end_time))
+            
+            # Get column names
+            columns = [description[0] for description in cursor.description]
+            
+            # Fetch all results
+            funding_rates = []
+            for row in cursor.fetchall():
+                funding_rate = {columns[i]: row[i] for i in range(len(columns))}
+                funding_rates.append(funding_rate)
+            
+            self.logger.info(f"Fetched {len(funding_rates)} funding rates between {start_time} and {end_time}")
+            return funding_rates
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching funding rates: {str(e)}")
+            return []
+
+    def fetch_open_interest(self, start_time: int, end_time: int) -> List[Dict[str, Any]]:
+        """
+        Fetch open interest data within a time range.
+        
+        Args:
+            start_time (int): Start timestamp (milliseconds)
+            end_time (int): End timestamp (milliseconds)
+            
+        Returns:
+            List[Dict[str, Any]]: Open interest data
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            cursor.execute('''
+            SELECT * FROM open_interest
+            WHERE timestamp >= ? AND timestamp <= ?
+            ORDER BY timestamp ASC
+            ''', (start_time, end_time))
+            
+            # Get column names
+            columns = [description[0] for description in cursor.description]
+            
+            # Fetch all results
+            open_interest_data = []
+            for row in cursor.fetchall():
+                oi_entry = {columns[i]: row[i] for i in range(len(columns))}
+                open_interest_data.append(oi_entry)
+            
+            self.logger.info(f"Fetched {len(open_interest_data)} open interest entries between {start_time} and {end_time}")
+            return open_interest_data
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching open interest data: {str(e)}")
+            return []
+
+    def fetch_transactions(self, start_time: int, end_time: int) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Fetch transaction data within a time range.
+        
+        Args:
+            start_time (int): Start timestamp (milliseconds)
+            end_time (int): End timestamp (milliseconds)
+            
+        Returns:
+            Dict[str, List[Dict[str, Any]]]: Transaction data by symbol
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            cursor.execute('''
+            SELECT * FROM transactions
+            WHERE timestamp >= ? AND timestamp <= ?
+            ORDER BY timestamp ASC
+            ''', (start_time, end_time))
+            
+            # Get column names
+            columns = [description[0] for description in cursor.description]
+            
+            # Fetch all results and organize by symbol
+            transactions_by_symbol = {}
+            for row in cursor.fetchall():
+                transaction = {columns[i]: row[i] for i in range(len(columns))}
+                symbol = transaction.get('symbol', 'unknown')
+                
+                if symbol not in transactions_by_symbol:
+                    transactions_by_symbol[symbol] = []
+                
+                transactions_by_symbol[symbol].append(transaction)
+            
+            total_transactions = sum(len(txs) for txs in transactions_by_symbol.values())
+            self.logger.info(f"Fetched {total_transactions} transactions for {len(transactions_by_symbol)} symbols between {start_time} and {end_time}")
+            return transactions_by_symbol
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching transactions: {str(e)}")
+            return {}
+
+    def create_market_analysis_table(self) -> None:
+        """Create table for storing market analysis results."""
+        try:
+            cursor = self.conn.cursor()
+            
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS market_analysis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp INTEGER NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                analysis TEXT NOT NULL,
+                error TEXT,
+                raw_data TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
+            self.conn.commit()
+            self.logger.info("Created market_analysis table")
+            
+        except Exception as e:
+            self.logger.error(f"Error creating market_analysis table: {str(e)}")
+
+    def store_market_analysis(self, analysis: Dict[str, Any]) -> bool:
+        """
+        Store market analysis in the database.
+        
+        Args:
+            analysis (Dict[str, Any]): Analysis data
+            
+        Returns:
+            bool: True if stored successfully, False otherwise
+        """
+        try:
+            # Create table if it doesn't exist
+            self.create_market_analysis_table()
+            
+            cursor = self.conn.cursor()
+            
+            cursor.execute('''
+            INSERT INTO market_analysis 
+            (timestamp, provider, model, analysis, error, raw_data)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                analysis.get('timestamp', int(time.time() * 1000)),
+                analysis.get('provider', 'unknown'),
+                analysis.get('model', 'unknown'),
+                analysis.get('analysis', ''),
+                analysis.get('error', None),
+                json.dumps(analysis)
+            ))
+            
+            self.conn.commit()
+            self.logger.info(f"Stored market analysis from {analysis.get('provider')} in database")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error storing market analysis: {str(e)}")
+            return False
+
+    def fetch_latest_analysis(self, limit: int = 1) -> List[Dict[str, Any]]:
+        """
+        Fetch the latest market analysis results.
+        
+        Args:
+            limit (int): Maximum number of results to return
+            
+        Returns:
+            List[Dict[str, Any]]: Analysis results
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            cursor.execute('''
+            SELECT * FROM market_analysis
+            ORDER BY timestamp DESC
+            LIMIT ?
+            ''', (limit,))
+            
+            # Get column names
+            columns = [description[0] for description in cursor.description]
+            
+            # Fetch all results
+            analysis_results = []
+            for row in cursor.fetchall():
+                analysis = {columns[i]: row[i] for i in range(len(columns))}
+                
+                # Parse raw_data if available
+                if 'raw_data' in analysis and analysis['raw_data']:
+                    try:
+                        analysis['raw_data'] = json.loads(analysis['raw_data'])
+                    except:
+                        pass
+                
+                analysis_results.append(analysis)
+            
+            self.logger.info(f"Fetched {len(analysis_results)} latest market analysis results")
+            return analysis_results
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching latest analysis: {str(e)}")
+            return [] 

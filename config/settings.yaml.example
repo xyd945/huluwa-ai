@@ -70,4 +70,16 @@ logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
   file: "logs/trading.log"
   rotation: "1 day"
-  retention: "30 days" 
+  retention: "30 days"
+
+# AI Analysis configuration
+ai_analysis:
+  enabled: true
+  interval: 3600  # Analysis interval in seconds (1 hour)
+  llm:
+    provider: "openai"  # Options: openai, deepseek, gemini
+    api_key: ""  # Alternatively, set via OPENAI_API_KEY, DEEPSEEK_API_KEY, or GEMINI_API_KEY environment variable
+    model: "gpt-4"  # or "deepseek-chat" for DeepSeek, "gemini-1.5-pro" for Gemini
+    api_version: "v1beta"  # Only needed for Gemini
+    temperature: 0.0
+    max_tokens: 1000 
