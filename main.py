@@ -34,6 +34,9 @@ from ai_module.prediction_engine import PredictionEngine
 # Import execution modules
 from execution.order_manager import OrderManager
 
+# Import AI analysis module
+from ai_analysis.market_analyzer import MarketAnalyzer
+
 class AITradingAgent:
     """Main orchestrator for the AI trading agent."""
     
@@ -72,6 +75,14 @@ class AITradingAgent:
         
         # Initialize order manager
         self._init_order_manager()
+        
+        # Initialize AI market analyzer
+        if self.config.get('ai_analysis', {}).get('enabled', False):
+            self.market_analyzer = MarketAnalyzer(config_path=self.config_path)
+            self.logger.info("AI Market Analyzer initialized")
+        else:
+            self.market_analyzer = None
+            self.logger.info("AI Market Analyzer not initialized (disabled in config)")
         
         # Data storage
         self.liquidation_data = []
@@ -254,6 +265,15 @@ class AITradingAgent:
             data_collection_tasks.append(
                 asyncio.create_task(self.transactions_collector.start_collection())
             )
+        
+        # Start AI market analyzer
+        analysis_config = self.config.get('ai_analysis', {})
+        if self.market_analyzer and analysis_config.get('enabled', False):
+            interval = analysis_config.get('interval', 3600)
+            data_collection_tasks.append(
+                asyncio.create_task(self.market_analyzer.start_analysis(interval=interval))
+            )
+            self.logger.info(f"Started AI market analysis with interval {interval}s")
         
         # Set up signal processing
         self.logger.info("Setting up signal processing pipeline...")
